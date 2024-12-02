@@ -71,17 +71,21 @@
       <div v-if="!isResourceMonitorCollapsed" class="monitor-content">
         <div class="monitor-item">
           <span class="label">CPU</span>
-          <div class="progress-bar">
-            <div class="progress cpu-progress" :style="{ width: `${cpuUsage}%` }" :class="getCPUClass"></div>
+          <div class="progress-wrapper">
+            <div class="progress-bar">
+              <div class="progress cpu-progress" :style="{ width: `${cpuUsage}%` }" :class="getCPUClass"></div>
+            </div>
+            <span class="value" v-show="showValues">{{ cpuUsage }}%</span>
           </div>
-          <span class="value" v-show="showValues">{{ cpuUsage }}%</span>
         </div>
         <div class="monitor-item">
           <span class="label">MEM</span>
-          <div class="progress-bar">
-            <div class="progress mem-progress" :style="{ width: `${memUsage}%` }"></div>
+          <div class="progress-wrapper">
+            <div class="progress-bar">
+              <div class="progress mem-progress" :style="{ width: `${memUsage}%` }"></div>
+            </div>
+            <span class="value" v-show="showValues">{{ memUsage }}%</span>
           </div>
-          <span class="value" v-show="showValues">{{ memUsage }}%</span>
         </div>
       </div>
       <div class="monitor-collapse-indicator">
@@ -392,18 +396,24 @@ export default {
         return
       }
 
+      // 等待 DOM 完全渲染
+      await new Promise(resolve => setTimeout(resolve, 50))
+
       // 计算初始终端大小
       const terminalElement = terminal.value
       const computedStyle = window.getComputedStyle(terminalElement)
       const padding = parseInt(computedStyle.padding || '0')
-      const availableWidth = terminalElement.clientWidth - 2 * padding
-      const availableHeight = terminalElement.clientHeight - 2 * padding
+      const availableWidth = terminalElement.clientWidth - 2 * padding - 20  // 减去滚动条宽度
+      const availableHeight = terminalElement.clientHeight - 2 * padding - 5  // 留出一点底部空间
 
       // 使用字符尺寸计算合适的列数和行数
-      const charWidth = 9 // 假设每个字符的平均宽度为9像素
-      const charHeight = 17 // 假设每个字符的高度为17像素
-      const cols = Math.floor(availableWidth / charWidth)
-      const rows = Math.floor(availableHeight / charHeight)
+      const charWidth = 8  // 调整为更小的字符宽度
+      const charHeight = 16 // 调整为更小的字符高度
+      const minCols = 132  // 设置最小列数
+      const minRows = 43   // 设置最小行数
+
+      const cols = Math.max(minCols, Math.floor(availableWidth / charWidth))
+      const rows = Math.max(minRows, Math.floor(availableHeight / charHeight))
 
       term = new Terminal({
         cursorBlink: true,
@@ -412,16 +422,17 @@ export default {
         copyOnSelect: false,
         theme: isDarkMode.value ? getDarkTheme() : getLightTheme(),
         allowTransparency: true,
-        scrollback: 10000, // 增加回滚缓冲区大小
+        scrollback: 10000,
         convertEol: true,
         termName: 'xterm-256color',
         rendererType: 'canvas',
         allowProposedApi: true,
         cols: cols,
         rows: rows,
+        wordWrap: false,
         windowsMode: false,
         windowsPty: false,
-        smoothScrollDuration: 300, // 添加平滑滚动
+        smoothScrollDuration: 300,
         fastScrollModifier: 'alt',
         allowTransparency: true,
         drawBoldTextInBrightColors: true,
@@ -438,10 +449,30 @@ export default {
       
       term.open(terminal.value)
 
-      await new Promise(resolve => setTimeout(resolve, 0))
+      // 等待终端完全初始化
+      await new Promise(resolve => setTimeout(resolve, 100))
 
       fitAddon = new FitAddon()
       term.loadAddon(fitAddon)
+      
+      // 确保终端大小正确设置
+      const resizeAndNotify = () => {
+        fitAddon.fit()
+        const { cols: newCols, rows: newRows } = term
+        if (socket && isTerminalReady.value) {
+          socket.emit('resize', { 
+            session_id: props.sessionId, 
+            cols: newCols, 
+            rows: newRows 
+          })
+        }
+      }
+
+      // 初始化完成后立即调整大小
+      resizeAndNotify()
+      
+      // 再次确认大小调整
+      setTimeout(resizeAndNotify, 200)
 
       // 自定义链接处理器
       const webLinksAddon = new WebLinksAddon(
@@ -631,14 +662,15 @@ export default {
     }
 
     const detectPathChange = (output) => {
-      const pathRegex = /^\[([^@\]]+@[^\]]+)\]/;
+      // 更新正则表达式以匹配标准格式 [user@host]:path#
+      const pathRegex = /^\[(.*?@.*?)\]:.*?[#\$]\s*$/;
       const match = output.match(pathRegex);
       if (match) {
         const promptInfo = match[1].trim();
         if (promptInfo !== currentPath.value) {
           currentPath.value = promptInfo;
           emit('pathChange', promptInfo);
-          console.log('Path changed in SSHTerminal:', promptInfo);
+          console.log('Path changed in SSHTerminal:', promptInfo, 'from output:', output);
         }
       }
     };
@@ -656,32 +688,36 @@ export default {
           }
 
           // 如果检测到命令提示符，说明已退出编辑器模式
-          if (/\[.*?@.*?\s+.*?\][$#>]\s*$/.test(text)) {
+          if (/\[.*?@.*?\]:.*?[#\$]\s*$/.test(text)) {
             isInEditorMode.value = false
           }
 
           const lines = text.split('\n')
           
           lines.forEach((line, index) => {
+            // 处理可能的换行问题
+            const processedLine = line.replace(/\r?\n/g, '\r\n').replace(/([^:]):([^\s])/g, '$1: $2')
+            
             if (!line && index < lines.length - 1) {
               term.write('\r\n')
               return
             }
 
-            const isPrompt = /^\[.*?@.*?\s+.*?\][$#>]\s*$/.test(line)
+            const isPrompt = /^\[.*?@.*?\]:.*?[#\$]\s*$/.test(line)
             
             if (isPrompt) {
               // 处理提示符高亮...
-              const parts = line.match(/^\[(.*?)@(.*?)\s+(.*?)\]([$#>])\s*$/)
+              const parts = line.match(/^\[(.*?)@(.*?)\]:(.*?)([#\$])\s*$/)
               if (parts) {
                 term.write('\x1b[1;32m[' + parts[1])
                 term.write('\x1b[1;37m@')
                 term.write('\x1b[1;34m' + parts[2])
-                term.write('\x1b[1;34m ' + parts[3])
-                term.write('\x1b[1;37m]' + parts[4])
+                term.write('\x1b[1;37m]')
+                term.write('\x1b[1;34m:' + parts[3].replace(/\s+/g, ''))  // 移除多余空格
+                term.write('\x1b[1;37m' + parts[4])
                 term.write('\x1b[0m')
               } else {
-                term.write(line)
+                term.write(processedLine)
               }
             } else {
               // 处理正则和字符串匹配的高亮
@@ -1634,28 +1670,39 @@ export default {
   width: 100%;
   height: 100%;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .terminal-container {
   width: 100%;
   height: 100%;
-  padding: 4px;
   box-sizing: border-box;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
 }
 
 :deep(.xterm) {
   height: 100%;
-  padding: 4px;
+  padding: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 
 :deep(.xterm-viewport) {
   overflow-y: auto !important;
   overflow-x: hidden !important;
-  width: calc(100%) !important;
+  width: 100% !important;
+  height: 100% !important;
   scrollbar-width: thin;
   scrollbar-color: var(--color-text-4) transparent;
-  padding-right: 4px;
+  flex: 1;
+  min-height: 0;
 }
 
 :deep(.xterm-viewport::-webkit-scrollbar) {
@@ -1704,10 +1751,25 @@ export default {
 
 :deep(.xterm-screen) {
   position: relative;
+  width: 100% !important;
+  height: 100% !important;
+  min-height: 0;
 }
-</style>
 
-<style>
+:deep(.xterm-rows) {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* 添加内边距到滚动条容器而不是视口 */
+:deep(.xterm-viewport > div) {
+  padding: 4px;
+  box-sizing: border-box;
+}
+
 .terminal-context-menu {
   position: fixed;
   background: var(--color-bg-2);
@@ -1851,7 +1913,7 @@ export default {
   flex-direction: column;
   gap: 4px;
   padding: 6px;
-  transition: opacity 0.3s ease;
+  min-width: 80px; /* 减小最小宽度 */
 }
 
 .resource-monitor.collapsed .monitor-content {
@@ -1884,10 +1946,18 @@ export default {
 
 .monitor-item .label {
   color: var(--color-text-2);
-  width: 28px;
+  width: 24px; /* 减小标签宽度 */
   text-align: right;
   font-size: 11px;
   flex-shrink: 0;
+}
+
+.progress-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 4px; /* 减小间距 */
+  flex: 1;
+  min-width: 40px; /* 减小最小宽度 */
 }
 
 .progress-bar {
@@ -1897,26 +1967,21 @@ export default {
   border-radius: 2px;
   position: relative;
   overflow: hidden;
-  min-width: 60px;
+  min-width: 30px; /* 减小进度条最小宽度 */
 }
 
 .value {
-  position: absolute;
-  right: -4px;
   font-size: 10px;
   color: var(--color-text-2);
-  min-width: 36px;
+  min-width: 28px; /* 减小数值显示最小宽度 */
   text-align: right;
   opacity: 0;
-  transition: opacity 0.2s ease, transform 0.2s ease;
-  transform: translateY(-50%);
-  top: 50%;
-  pointer-events: none;
+  transition: opacity 0.2s ease;
+  white-space: nowrap;
 }
 
 .resource-monitor:hover .value {
   opacity: 1;
-  transform: translateY(-50%) translateX(-8px);
 }
 
 /* CPU进度条样式 */

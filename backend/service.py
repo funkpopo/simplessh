@@ -486,10 +486,10 @@ def handle_resize(data):
         session_id = data.get('session_id')
         if not session_id or session_id not in ssh_sessions:
             return
-            
-        # 获取新的终端大小
-        cols = max(80, min(data.get('cols', 80), 500))  # 限制列范围
-        rows = max(24, min(data.get('rows', 24), 200))  # 限制行范围
+                
+        # 获取新的终端大小，确保最小值足够大
+        cols = max(132, min(data.get('cols', 132), 500))  # 增加最小列数
+        rows = max(43, min(data.get('rows', 43), 200))   # 增加最小行数
         
         session = ssh_sessions[session_id]
         channel = session.channel
