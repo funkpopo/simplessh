@@ -4,12 +4,16 @@ directories:
   output: dist_electron
   buildResources: build
 files:
-  - "dist_electron/**/*"
+  - "**/*"
   - "!node_modules/**/*"
   - "package.json"
 extraResources:
   - from: "backend/dist/service"
-    to: "."
+    to: "service"
+  - from: "public/splash.html"
+    to: "splash.html"
+  - from: "src/assets/icon.png"
+    to: "icon.png"
 extraFiles:
   - from: "highlight.list"
     to: "highlight.list"
@@ -19,7 +23,6 @@ win:
     - target: portable
       arch:
         - x64
-  requestedExecutionLevel: requireAdministrator
   compression: maximum
   artifactName: "${productName}-portable-${version}-${arch}.${ext}"
 portable:
@@ -39,6 +42,6 @@ linux:
   executableName: "simpleshell"
 asar: true
 asarUnpack:
-  - "resources/**/*"
+  - "resources/*"
   - "dist_electron/preload.js"
 npmRebuild: true

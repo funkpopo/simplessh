@@ -25,6 +25,7 @@ protocol.registerSchemesAsPrivileged([
 
 let backendProcess = null
 let mainWindow = null
+let splashWindow = null
 
 // 修改获取应用数据路径的函数
 function getAppDataPath() {
@@ -60,12 +61,27 @@ function getBackendPath() {
     }
   } else {
     // 根据平台选择正确的可执行文件
-    const executableName = process.platform === 'win32' ? 'service.exe' : 'service';
+    const executableName = process.platform === 'win32' ? 'service.exe' : 'service'
+    const resourcesPath = process.resourcesPath
+    console.log('Resources path:', resourcesPath)
+    const executablePath = path.join(resourcesPath, executableName)
+    console.log('Executable path:', executablePath)
     return {
-      executable: path.join(process.resourcesPath, executableName),
+      executable: executablePath,
       args: [],
-      cwd: process.resourcesPath
+      cwd: resourcesPath
     }
+  }
+}
+
+// 添加启动前的检查
+function checkBackendExecutable() {
+  if (!isDevelopment) {
+    const { executable } = getBackendPath()
+    if (!fs.existsSync(executable)) {
+      throw new Error(`Backend executable not found at: ${executable}`)
+    }
+    console.log('Backend executable found at:', executable)
   }
 }
 
@@ -288,10 +304,38 @@ async function waitForBackend() {
   throw new Error('Backend failed to start within 30 seconds')
 }
 
+function createSplashWindow() {
+  splashWindow = new BrowserWindow({
+    width: 400,
+    height: 300,
+    frame: false,
+    transparent: true,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false
+    }
+  })
+
+  if (process.env.WEBPACK_DEV_SERVER_URL) {
+    splashWindow.loadURL(process.env.WEBPACK_DEV_SERVER_URL + 'splash.html')
+  } else {
+    createProtocol('app')
+    splashWindow.loadURL('app://./splash.html')
+  }
+}
+
 async function createWindow() {
   try {
+    // 检查后端可执行文件
+    checkBackendExecutable()
+    
+    // 显示启动动画
+    createSplashWindow()
+    
     // 启动后端前先等待一下
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    await new Promise(resolve => setTimeout(resolve, 1000))
     
     const backendStarted = startBackend()
     if (!backendStarted) {
@@ -304,7 +348,7 @@ async function createWindow() {
     } catch (error) {
       console.error('Backend startup timeout:', error)
       dialog.showErrorBox('Backend Error', 'Backend service failed to start in time')
-      cleanupBackend() // 添加这行，确保在超时时清理后端进程
+      cleanupBackend()
       app.quit()
       return
     }
@@ -314,6 +358,7 @@ async function createWindow() {
       height: 768,
       minWidth: 800,
       minHeight: 600,
+      show: false, // 先不显示主窗口
       webPreferences: {
         nodeIntegration: true,
         contextIsolation: false,
@@ -356,13 +401,24 @@ async function createWindow() {
       })
     })
 
-    if (process.env.WEBPACK_DEV_SERVER_URL) {
-      await mainWindow.loadURL(process.env.WEBPACK_DEV_SERVER_URL)
-      if (!process.env.IS_TEST) mainWindow.webContents.openDevTools()
-    } else {
-      createProtocol('app')
-      mainWindow.loadURL('app://./index.html')
+    // 等待主窗口加载完成
+    await new Promise((resolve) => {
+      mainWindow.webContents.on('did-finish-load', resolve)
+      
+      if (process.env.WEBPACK_DEV_SERVER_URL) {
+        mainWindow.loadURL(process.env.WEBPACK_DEV_SERVER_URL)
+      } else {
+        createProtocol('app')
+        mainWindow.loadURL('app://./index.html')
+      }
+    })
+
+    // 关闭启动窗口，显示主窗口
+    if (splashWindow) {
+      splashWindow.close()
+      splashWindow = null
     }
+    mainWindow.show()
 
     mainWindow.on('closed', () => {
       mainWindow = null
@@ -395,6 +451,9 @@ async function createWindow() {
   } catch (error) {
     console.error('Error in createWindow:', error)
     showError('Application Error', `Failed to start application: ${error.message}`)
+    if (splashWindow) {
+      splashWindow.close()
+    }
     app.quit()
   }
 }
@@ -473,7 +532,15 @@ if (isDevelopment) {
   }
 }
 
-// 添加更多的清理点
+// 修改清理函数，确保同时清理启动窗口
+function cleanup() {
+  cleanupBackend()
+  if (splashWindow) {
+    splashWindow.close()
+    splashWindow = null
+  }
+}
+
 process.on('exit', () => {
   cleanupBackend()
 })

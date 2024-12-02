@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Loading...</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: transparent;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            color: #333;
+            font-family: Arial, sans-serif;
+            user-select: none;
+            overflow: hidden;
+        }
+        
+        .splash-container {
+            text-align: center;
+            background: rgba(34, 34, 34, 0.95);
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            backdrop-filter: blur(10px);
+            animation: fadeIn 0.5s ease-out;
+        }
+
+        .logo {
+            width: 120px;
+            height: 120px;
+            margin-bottom: 20px;
+            animation: pulse 2s infinite;
+        }
+
+        .progress-bar {
+            width: 200px;
+            height: 4px;
+            background: #575757;
+            border-radius: 4px;
+            margin: 15px auto;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .progress {
+            width: 30%;
+            height: 100%;
+            background: linear-gradient(90deg, #165DFF, #3C7EFF, #165DFF);
+            border-radius: 4px;
+            animation: loading 2s infinite ease-in-out;
+            position: absolute;
+            left: -30%;
+        }
+
+        .status-text {
+            font-size: 14px;
+            color: #e9e9e9;
+            margin-top: 12px;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: scale(0.95); }
+            to { opacity: 1; transform: scale(1); }
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
+
+        @keyframes loading {
+            0% { left: -30%; }
+            50% { left: 200%; }
+            100% { left: -30%; }
+        }
+    </style>
+</head>
+<body>
+    <div class="splash-container">
+        <img src="./icon.png" alt="Logo" class="logo">
+        <div class="progress-bar">
+            <div class="progress"></div>
+        </div>
+        <div class="status-text">Loading...</div>
+    </div>
+</body>
+</html> 

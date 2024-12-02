@@ -605,7 +605,8 @@ export default {
     // 滚动到底部
     const scrollToBottom = () => {
       if (messagesContainer.value) {
-        messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight
+        const container = messagesContainer.value
+        container.scrollTop = container.scrollHeight
       }
     }
 
@@ -1033,6 +1034,21 @@ export default {
       return logos[provider] || null
     }
 
+    // 监听消息列表变化，自动滚动到底部
+    watch(() => messages.value.length, () => {
+      nextTick(() => {
+        scrollToBottom()
+      })
+    })
+
+    // 监听窗口大小变化，保持滚动到底部
+    watch(() => windowSize.value, () => {
+      nextTick(() => {
+        scrollToBottom()
+      })
+    })
+
+    // 组件挂载时初始化滚动位置
     onMounted(() => {
       loadSettings()
       // 初始化窗口位置在可视区域内
@@ -1044,6 +1060,9 @@ export default {
 
       // 监听窗口大小变化
       window.addEventListener('resize', updateMaxDimensions)
+      nextTick(() => {
+        scrollToBottom()
+      })
     })
 
     onUnmounted(() => {
